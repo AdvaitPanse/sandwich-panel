@@ -191,6 +191,7 @@
             <input type="range" id="loadSlider" min="0" max="1" step="0.01" value="0.2">
         </div>
         <button id="resetBtn">Reset View</button>
+        <button id="toggleCoreBtn">Toggle Core Structure</button>
     </div>
 
     <div class="overlay metrics" id="metricsPanel">
@@ -483,6 +484,13 @@
         }
 
         // Event Listeners
+        let coreVisible = true;
+        document.getElementById("toggleCoreBtn").addEventListener("click", () => {
+            coreVisible = !coreVisible;
+            if (coreGroup) {
+                coreGroup.visible = coreVisible;
+            }
+        });
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
