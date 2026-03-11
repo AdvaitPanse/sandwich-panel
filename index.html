@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sandwich Panel Lab | Structural Visualization</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        :root {
+            --bg: #050507;
+            --panel: rgba(20, 20, 25, 0.8);
+            --accent: #00f2ff;
+            --text: #e0e6ed;
+            --ui-border: #2d2d3a;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            overflow: hidden;
+        }
+
+        /* Layout */
+        #container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        /* UI Overlay */
+        .overlay {
+            position: absolute;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        .header {
+            top: 20px;
+            left: 20px;
+            max-width: 450px;
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 1.5rem;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            color: var(--accent);
+            text-shadow: 0 0 15px rgba(0, 242, 255, 0.5);
+        }
+
+        .header p {
+            font-size: 0.9rem;
+            opacity: 0.8;
+            line-height: 1.4;
+        }
+
+        /* Controls Panel */
+        .controls {
+            top: 20px;
+            right: 20px;
+            background: var(--panel);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid var(--ui-border);
+            pointer-events: auto;
+            width: 280px;
+        }
+
+        .control-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+            color: var(--accent);
+        }
+
+        select, input[type="range"] {
+            width: 100%;
+            background: #1a1a24;
+            border: 1px solid var(--ui-border);
+            color: white;
+            padding: 8px;
+            border-radius: 4px;
+            outline: none;
+        }
+
+        /* Metrics Panel */
+        .metrics {
+            bottom: 20px;
+            right: 20px;
+            background: var(--panel);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid var(--ui-border);
+            width: 280px;
+        }
+
+        .metric-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            font-size: 0.85rem;
+        }
+
+        .metric-value {
+            font-weight: bold;
+            color: var(--accent);
+        }
+
+        .metric-bar-bg {
+            height: 4px;
+            background: #2d2d3a;
+            width: 100%;
+            margin-top: 4px;
+            border-radius: 2px;
+        }
+
+        .metric-bar-fill {
+            height: 100%;
+            background: var(--accent);
+            border-radius: 2px;
+            transition: width 0.5s ease;
+        }
+
+        /* Legend */
+        .legend {
+            bottom: 20px;
+            left: 20px;
+            display: flex;
+            gap: 15px;
+            font-size: 0.7rem;
+            background: var(--panel);
+            padding: 10px;
+            border-radius: 4px;
+        }
+
+        .legend-item { display: flex; align-items: center; gap: 5px; }
+        .color-box { width: 12px; height: 12px; border-radius: 2px; }
+
+        button {
+            width: 100%;
+            padding: 10px;
+            background: transparent;
+            border: 1px solid var(--accent);
+            color: var(--accent);
+            cursor: pointer;
+            transition: 0.3s;
+            text-transform: uppercase;
+            font-size: 0.8rem;
+        }
+
+        button:hover {
+            background: var(--accent);
+            color: black;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="container"></div>
+
+    <div class="overlay header">
+        <h1>Sandwich Panel Strength Lab</h1>
+        <p>Explore how core topology affects load distribution in composite sandwich structures. Higher loads cause micro-strain deformation and stress accumulation.</p>
+    </div>
+
+    <div class="overlay controls">
+        <div class="control-group">
+            <label>Core Geometry</label>
+            <select id="coreSelector">
+                <option value="hex">Hexagonal Honeycomb</option>
+                <option value="tri">Triangular Lattice</option>
+                <option value="sqr">Square Lattice</option>
+            </select>
+        </div>
+        <div class="control-group">
+            <label>Compression Load</label>
+            <input type="range" id="loadSlider" min="0" max="1" step="0.01" value="0.2">
+        </div>
+        <button id="resetBtn">Reset View</button>
+    </div>
+
+    <div class="overlay metrics" id="metricsPanel">
+        <!-- Injected by JS -->
+    </div>
+
+    <div class="overlay legend">
+        <div class="legend-item"><div class="color-box" style="background: #0055ff;"></div> Low Stress</div>
+        <div class="legend-item"><div class="color-box" style="background: #00ff00;"></div> Normal</div>
+        <div class="legend-item"><div class="color-box" style="background: #ffff00;"></div> High</div>
+        <div class="legend-item"><div class="color-box" style="background: #ff0000;"></div> Critical</div>
+    </div>
+
+    <script>
+        /**
+         * SCIENTIFIC CORE METRICS DATA
+         */
+        const coreData = {
+            hex: {
+                name: "Hexagonal Honeycomb",
+                material: 100,
+                stw: 9.5,
+                dist: "Excellent",
+                stability: 85,
+                efficiency: 95
+            },
+            tri: {
+                name: "Triangular Lattice",
+                material: 145,
+                stw: 8.0,
+                dist: "Good",
+                stability: 98,
+                efficiency: 70
+            },
+            sqr: {
+                name: "Square Lattice",
+                material: 115,
+                stw: 5.5,
+                dist: "Uneven",
+                stability: 50,
+                efficiency: 60
+            }
+        };
+
+        /**
+         * THREE.JS SIMULATION ENGINE
+         */
+        let scene, camera, renderer, controls;
+        let coreGroup, topPanel, bottomPanel;
+        let currentCore = 'hex';
+        let loadFactor = 0.2;
+
+        const CORE_HEIGHT = 4;
+        const GRID_SIZE = 12;
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x050507);
+            
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(15, 10, 15);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            document.getElementById('container').appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+
+            // Lights
+            const ambientLight = new THREE.AmbientLight(0x404040, 2);
+            scene.add(ambientLight);
+            const pointLight = new THREE.PointLight(0x00f2ff, 1);
+            pointLight.position.set(10, 10, 10);
+            scene.add(pointLight);
+
+            setupPanels();
+            buildCore('hex');
+            updateMetrics('hex');
+            animate();
+        }
+
+        function setupPanels() {
+            const panelGeom = new THREE.BoxGeometry(15, 0.2, 15);
+            const panelMat = new THREE.MeshPhongMaterial({
+                color: 0x222233,
+                transparent: true,
+                opacity: 0.6,
+                shininess: 100
+            });
+
+            topPanel = new THREE.Mesh(panelGeom, panelMat);
+            bottomPanel = new THREE.Mesh(panelGeom, panelMat);
+
+            topPanel.position.y = CORE_HEIGHT / 2;
+            bottomPanel.position.y = -CORE_HEIGHT / 2;
+
+            scene.add(topPanel);
+            scene.add(bottomPanel);
+        }
+
+        function buildCore(type) {
+            if (coreGroup) scene.remove(coreGroup);
+            coreGroup = new THREE.Group();
+            
+            const linesMaterial = new THREE.LineBasicMaterial({ 
+                vertexColors: true,
+                linewidth: 2
+            });
+
+            const points = [];
+            const colors = [];
+
+            if (type === 'hex') {
+                const hexRadius = 1;
+                for (let i = -5; i < 5; i++) {
+                    for (let j = -5; j < 5; j++) {
+                        let x = i * hexRadius * 1.732;
+                        let z = j * hexRadius * 1.5;
+                        if (j % 2 !== 0) x += hexRadius * 0.866;
+                        
+                        addHexCell(x, z, hexRadius, points, colors);
+                    }
+                }
+            } else if (type === 'tri') {
+                const size = 1.5;
+                for (let i = -5; i < 5; i++) {
+                    for (let j = -5; j < 5; j++) {
+                        let x = i * size;
+                        let z = j * size;
+                        if (j % 2 !== 0) x += size/2;
+                        addTriCell(x, z, size, points, colors);
+                    }
+                }
+            } else if (type === 'sqr') {
+                const size = 1.5;
+                for (let i = -5; i < 5; i++) {
+                    for (let j = -5; j < 5; j++) {
+                        addSqrCell(i * size, j * size, size, points, colors);
+                    }
+                }
+            }
+
+            const geometry = new THREE.BufferGeometry().setFromPoints(points);
+            geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+            const segments = new THREE.LineSegments(geometry, linesMaterial);
+            coreGroup.add(segments);
+            scene.add(coreGroup);
+        }
+
+        // Cell Construction Helpers
+        function addVerticalStrut(x, z, points, colors) {
+            points.push(new THREE.Vector3(x, -CORE_HEIGHT/2, z));
+            points.push(new THREE.Vector3(x, CORE_HEIGHT/2, z));
+            // Placeholder colors
+            for(let i=0; i<2; i++) colors.push(0, 0.5, 1);
+        }
+
+        function addHexCell(x, z, r, points, colors) {
+            for (let i = 0; i < 6; i++) {
+                const angle = (Math.PI / 3) * i;
+                const vx = x + Math.cos(angle) * r;
+                const vz = z + Math.sin(angle) * r;
+                addVerticalStrut(vx, vz, points, colors);
+                
+                // Horizontal connectors
+                const nextAngle = (Math.PI / 3) * (i + 1);
+                const nx = x + Math.cos(nextAngle) * r;
+                const nz = z + Math.sin(nextAngle) * r;
+                
+                // Top ring
+                points.push(new THREE.Vector3(vx, CORE_HEIGHT/2, vz));
+                points.push(new THREE.Vector3(nx, CORE_HEIGHT/2, nz));
+                // Bottom ring
+                points.push(new THREE.Vector3(vx, -CORE_HEIGHT/2, vz));
+                points.push(new THREE.Vector3(nx, -CORE_HEIGHT/2, nz));
+                
+                for(let k=0; k<4; k++) colors.push(0, 0.5, 1);
+            }
+        }
+
+        function addTriCell(x, z, s, points, colors) {
+            const h = s * (Math.sqrt(3)/2);
+            const pts = [
+                [x, z], [x + s, z], [x + s/2, z + h]
+            ];
+            pts.forEach((p, i) => {
+                addVerticalStrut(p[0], p[1], points, colors);
+                const next = pts[(i+1)%3];
+                points.push(new THREE.Vector3(p[0], CORE_HEIGHT/2, p[1]));
+                points.push(new THREE.Vector3(next[0], CORE_HEIGHT/2, next[1]));
+                points.push(new THREE.Vector3(p[0], -CORE_HEIGHT/2, p[1]));
+                points.push(new THREE.Vector3(next[0], -CORE_HEIGHT/2, next[1]));
+                for(let k=0; k<4; k++) colors.push(0, 0.5, 1);
+            });
+        }
+
+        function addSqrCell(x, z, s, points, colors) {
+            const pts = [[x,z], [x+s,z], [x+s,z+s], [x,z+s]];
+            pts.forEach((p, i) => {
+                addVerticalStrut(p[0], p[1], points, colors);
+                const next = pts[(i+1)%4];
+                points.push(new THREE.Vector3(p[0], CORE_HEIGHT/2, p[1]));
+                points.push(new THREE.Vector3(next[0], CORE_HEIGHT/2, next[1]));
+                points.push(new THREE.Vector3(p[0], -CORE_HEIGHT/2, p[1]));
+                points.push(new THREE.Vector3(next[0], -CORE_HEIGHT/2, next[1]));
+                for(let k=0; k<4; k++) colors.push(0, 0.5, 1);
+            });
+        }
+
+        function updatePhysics() {
+            if (!coreGroup) return;
+            const lineSegments = coreGroup.children[0];
+            const positions = lineSegments.geometry.attributes.position;
+            const colors = lineSegments.geometry.attributes.color;
+
+            // Geometry stability factors
+            const stabilityMap = { 'hex': 0.4, 'tri': 0.15, 'sqr': 1.2 };
+            const factor = stabilityMap[currentCore] * loadFactor;
+
+            topPanel.position.y = (CORE_HEIGHT / 2) - (loadFactor * 0.5);
+
+            for (let i = 0; i < positions.count; i++) {
+                const y = positions.getY(i);
+                const x = positions.getX(i);
+                const z = positions.getZ(i);
+
+                // Calculate deformation (buckling simulation)
+                // Nodes at the top move down, nodes in middle bulge slightly
+                if (y > 0) {
+                    const normalizedY = (y + CORE_HEIGHT/2) / CORE_HEIGHT;
+                    const deformY = -loadFactor * normalizedY * 0.5;
+                    
+                    // Simple buckling logic: outward push based on load
+                    const bulge = Math.sin(normalizedY * Math.PI) * factor;
+                    
+                    // Update visual stress color
+                    const stress = Math.min(1.0, (loadFactor * 1.5) / (1.1 - stabilityMap[currentCore]));
+                    applyStressColor(colors, i, stress);
+                }
+            }
+            positions.needsUpdate = true;
+            colors.needsUpdate = true;
+        }
+
+        function applyStressColor(colorAttr, index, stress) {
+            // Gradient: Blue -> Green -> Yellow -> Red
+            let r=0, g=0, b=0;
+            if (stress < 0.25) {
+                b = 1; g = stress * 4;
+            } else if (stress < 0.5) {
+                g = 1; b = 1 - (stress - 0.25) * 4;
+            } else if (stress < 0.75) {
+                g = 1; r = (stress - 0.5) * 4;
+            } else {
+                r = 1; g = 1 - (stress - 0.75) * 4;
+            }
+            colorAttr.setXYZ(index, r, g, b);
+        }
+
+        function updateMetrics(type) {
+            const data = coreData[type];
+            const panel = document.getElementById('metricsPanel');
+            
+            // Calculate real-time max stress based on slider
+            const maxStress = (loadFactor * 100 * (1 / data.stw)).toFixed(1);
+
+            panel.innerHTML = `
+                <div style="font-weight:bold; margin-bottom:15px; border-bottom:1px solid #333; padding-bottom:5px;">${data.name}</div>
+                <div class="metric-row"><span>Material Volume</span><span class="metric-value">${data.material} u</span></div>
+                <div class="metric-bar-bg"><div class="metric-bar-fill" style="width:${(data.material/150)*100}%"></div></div>
+                
+                <div class="metric-row" style="margin-top:10px;"><span>Strength-to-Weight</span><span class="metric-value">${data.stw}</span></div>
+                <div class="metric-bar-bg"><div class="metric-bar-fill" style="width:${data.stw * 10}%"></div></div>
+                
+                
+
+                <div class="metric-row" style="margin-top:10px;"><span>Max Stress</span><span class="metric-value" style="color:${maxStress > 70 ? '#ff0000' : 'var(--accent)'}">${maxStress}%</span></div>
+                
+                <div class="metric-row" style="margin-top:10px;"><span>Load Dist.</span><span class="metric-value">${data.dist}</span></div>
+            `;
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            updatePhysics();
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // Event Listeners
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        document.getElementById('coreSelector').addEventListener('change', (e) => {
+            currentCore = e.target.value;
+            buildCore(currentCore);
+            updateMetrics(currentCore);
+        });
+
+        document.getElementById('loadSlider').addEventListener('input', (e) => {
+            loadFactor = parseFloat(e.target.value);
+            updateMetrics(currentCore);
+        });
+
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            camera.position.set(15, 10, 15);
+            controls.reset();
+        });
+
+        init();
+    </script>
+</body>
+</html>
